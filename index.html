@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Media Renamer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        body {
+            background: #0b0f19;
+            color: #e2e8f0;
+            font-family: 'Inter', system-ui, sans-serif;
+            overflow-x: hidden;
+        }
+        .file-row:hover { background: rgba(255, 255, 255, 0.03); }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
+        .input-disabled { opacity: 0.2; cursor: not-allowed; pointer-events: none; filter: grayscale(1); }
+        .s-badge { background: #3b82f6; color: #fff; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 800; font-family: monospace; }
+        .provider-active { background: #2563eb !important; border-color: #60a5fa !important; box-shadow: 0 0 15px rgba(37, 99, 235, 0.3); }
+        .btn-mode-active { background: #6366f1 !important; border-color: #818cf8 !important; }
+        
+        @keyframes progress {
+            0% { width: 0%; }
+            100% { width: 100%; }
+        }
+        .progress-bar { animation: progress 2s ease-in-out infinite; }
+        .match-pending { border-left: 4px solid #f59e0b; }
+        .match-success { border-left: 4px solid #10b981; }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+    <div class="max-w-7xl mx-auto">
+        <header class="mb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+            <div>
+                <h1 class="text-4xl font-black bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-500 tracking-tighter uppercase">
+                    Media Renamer
+                </h1>
+                <p class="text-slate-500 text-xs font-bold uppercase tracking-[0.2em] mt-1">Multi-Provider Catalog Engine</p>
+            </div>
+            <div class="flex flex-col items-end gap-2">
+                <div id="activeTime" class="text-[9px] font-black uppercase tracking-widest text-indigo-400/80 px-3 flex items-center gap-3 bg-slate-900/50 py-1.5 rounded-lg border border-slate-800/50">
+                    <div class="flex items-center gap-2">
+                        <span id="timerPulse" class="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
+                        Active Time: <span id="timerDisplay" class="font-mono text-slate-300">00:00:00</span>
+                    </div>
+                    <button onclick="toggleTimer()" id="timerControlBtn" class="hover:text-white transition-colors flex items-center gap-1 border-l border-slate-700 pl-3">
+                        <svg id="pauseIcon" class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                        <svg id="playIcon" class="w-3 h-3 hidden" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                        <span id="controlText">Pause</span>
+                    </button>
+                </div>
+                <div id="statusIndicator" class="text-[10px] font-black uppercase tracking-widest text-slate-600 px-3 py-1 rounded-full border border-slate-800">Engine: Active</div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <!-- Sidebar Controls -->
+            <div class="lg:col-span-4 space-y-6">
+                <!-- Data Source -->
+                <div class="glass-panel p-6 rounded-3xl shadow-2xl">
+                    <label class="block text-[10px] uppercase tracking-widest font-black text-slate-500 mb-4">Select Provider</label>
+                    <div class="grid grid-cols-3 gap-2">
+                        <button onclick="setProvider('tmdb')" id="p-tmdb" class="py-3 text-[10px] rounded-xl bg-slate-800/50 font-black border border-slate-700 transition-all uppercase">TMDB</button>
+                        <button onclick="setProvider('tvmaze')" id="p-tvmaze" class="py-3 text-[10px] rounded-xl bg-slate-800/50 font-black border border-slate-700 transition-all uppercase">TVMaze</button>
+                        <button onclick="setProvider('imdb')" id="p-imdb" class="py-3 text-[10px] rounded-xl bg-slate-800/50 font-black border border-slate-700 transition-all uppercase">IMDb</button>
+                    </div>
+                    
+                    <div class="mt-6">
+                        <label class="block text-[10px] uppercase tracking-widest font-black text-slate-500 mb-4">Content Category</label>
+                        <div class="flex gap-2">
+                            <button onclick="setMode('movie')" id="m-movie" class="flex-1 py-3 rounded-xl bg-slate-800/50 font-black border border-slate-700 text-[10px] uppercase transition-all">Movies</button>
+                            <button onclick="setMode('tv')" id="m-tv" class="flex-1 py-3 rounded-xl bg-slate-800/50 font-black border border-slate-700 text-[10px] uppercase transition-all">TV Shows</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Search -->
+                <div class="glass-panel p-6 rounded-3xl shadow-xl border-t border-white/5">
+                    <h2 class="text-sm font-black uppercase tracking-widest mb-4 flex justify-between items-center text-slate-300">
+                        1. Global Search
+                        <span id="activeShowBadge" class="hidden text-[9px] bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded border border-indigo-500/30 font-black">LINKED</span>
+                    </h2>
+                    <div class="space-y-4">
+                        <div class="relative group">
+                            <input type="text" id="searchInput" autocomplete="off" onkeyup="if(event.key==='Enter') performSearch()" placeholder="Search by name..." class="w-full bg-black/40 border border-slate-800 rounded-2xl px-5 py-4 outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder:text-slate-700">
+                            <button onclick="performSearch()" class="absolute right-4 top-4 text-slate-500 hover:text-white transition-colors">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                            </button>
+                        </div>
+                        <div id="searchResults" class="max-h-80 overflow-y-auto space-y-2 pr-1"></div>
+                    </div>
+                </div>
+
+                <!-- Episodes -->
+                <div id="manualEpSearchPanel" class="glass-panel p-6 rounded-3xl border border-slate-800 shadow-2xl transition-all">
+                    <h2 class="text-sm font-black uppercase tracking-widest mb-2 text-slate-300">2. Episode Map</h2>
+                    <p id="epPanelDesc" class="text-[9px] text-slate-500 mb-4 uppercase font-black tracking-widest">Awaiting Title Selection</p>
+                    <div class="space-y-4">
+                        <div class="relative group">
+                            <input type="text" id="epSearchInput" autocomplete="off" onkeyup="if(event.key==='Enter') searchManualEpisode()" disabled placeholder="Filter S01E01 or Title..." class="w-full bg-black/40 border border-slate-800 rounded-2xl px-5 py-4 text-sm outline-none focus:ring-2 focus:ring-indigo-500 text-slate-100 input-disabled transition-all">
+                            <button id="epSearchBtn" onclick="searchManualEpisode()" class="absolute right-4 top-4 text-slate-500 hover:text-white transition-colors input-disabled">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                            </button>
+                        </div>
+                        <div id="epSearchResults" class="max-h-72 overflow-y-auto space-y-2 pr-1"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Workspace -->
+            <div class="lg:col-span-8 space-y-6">
+                <div class="glass-panel p-8 rounded-[2.5rem] shadow-2xl min-h-[700px] flex flex-col border border-white/5">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+                        <div>
+                            <h2 class="text-2xl font-black uppercase italic tracking-tighter text-white">Files Queue</h2>
+                            <p class="text-[10px] text-slate-500 font-bold uppercase mt-1" id="fileCountDisplay">0 items ready</p>
+                        </div>
+                        <div class="flex gap-3 w-full sm:w-auto">
+                             <button onclick="clearFiles()" class="text-slate-500 hover:text-red-400 text-[10px] font-black uppercase px-4">Clear</button>
+                             <label class="cursor-pointer bg-white text-black px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-400 hover:text-white transition-all shadow-lg shadow-white/5">
+                                Import Media
+                                <input type="file" id="fileInput" multiple class="hidden" onchange="handleFileSelect(event)">
+                            </label>
+                        </div>
+                    </div>
+
+                    <div id="emptyState" class="flex-grow flex flex-col items-center justify-center space-y-4 opacity-20">
+                        <svg class="w-16 h-16 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"></path></svg>
+                        <p class="uppercase font-black text-xs tracking-widest text-slate-400">Queue is empty</p>
+                    </div>
+
+                    <div id="fileTableContainer" class="hidden flex-grow overflow-x-auto">
+                        <table class="w-full border-separate border-spacing-y-3">
+                            <tbody id="fileListBody"></tbody>
+                        </table>
+                    </div>
+
+                    <!-- Batch Process Footer -->
+                    <div id="footerControls" class="hidden mt-8 pt-8 border-t border-slate-800 space-y-4">
+                        <div id="processingIndicator" class="hidden">
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="text-[10px] font-black uppercase text-indigo-400" id="procStatus">Processing files...</span>
+                                <span class="text-[10px] font-black text-slate-500" id="procPercent">0%</span>
+                            </div>
+                            <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                <div id="procBar" class="h-full bg-indigo-500 transition-all duration-300" style="width: 0%"></div>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col sm:flex-row justify-between items-center gap-4">
+                            <p class="text-[10px] text-slate-600 font-bold uppercase">Rename and save files (Safari/Firefox will trigger individual downloads)</p>
+                            <div class="flex gap-2 w-full sm:w-auto">
+                                <button onclick="copyRenames()" class="flex-1 bg-slate-800/80 px-6 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-700 transition-all border border-slate-700">Copy Text List</button>
+                                <button onclick="batchSaveFiles()" class="flex-[2] bg-indigo-600 px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-indigo-500 transition-all shadow-xl shadow-indigo-900/20">Process & Save All</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification -->
+    <div id="toast" class="fixed bottom-10 left-1/2 -translate-x-1/2 bg-white text-black px-10 py-4 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] transition-all duration-500 translate-y-20 opacity-0 pointer-events-none z-50 text-[11px] font-black uppercase tracking-widest flex items-center gap-3">
+        <div class="w-2 h-2 bg-blue-500 rounded-full animate-ping"></div>
+        <span id="toastText"></span>
+    </div>
+
+    <script>
+        const TMDB_API_KEY = '178a10fe0bb2bd3ea1617ae1eabd30b9';
+        const IMDB_BASE_URL = 'https://api.imdbapi.dev';
+        let state = { provider: 'tmdb', mode: 'movie', files: [], activeShow: null, focusedFileId: null };
+        
+        let timerSeconds = 0;
+        let isTimerPaused = false;
+        let timerInterval = null;
+
+        window.onload = () => {
+            state = { provider: 'tmdb', mode: 'movie', files: [], activeShow: null, focusedFileId: null };
+            updateProviderUI();
+            updateModeUI();
+            updateUI();
+            startTimer();
+        };
+
+        function startTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                if (!isTimerPaused) {
+                    timerSeconds++;
+                    updateTimerDisplay();
+                }
+            }, 1000);
+        }
+
+        function toggleTimer() {
+            isTimerPaused = !isTimerPaused;
+            const pauseIcon = document.getElementById('pauseIcon');
+            const playIcon = document.getElementById('playIcon');
+            const controlText = document.getElementById('controlText');
+            const pulse = document.getElementById('timerPulse');
+
+            if (isTimerPaused) {
+                pauseIcon.classList.add('hidden');
+                playIcon.classList.remove('hidden');
+                controlText.innerText = "Resume";
+                pulse.classList.remove('animate-pulse');
+                pulse.classList.add('bg-slate-600');
+                pulse.classList.remove('bg-indigo-500');
+            } else {
+                pauseIcon.classList.remove('hidden');
+                playIcon.classList.add('hidden');
+                controlText.innerText = "Pause";
+                pulse.classList.add('animate-pulse');
+                pulse.classList.remove('bg-slate-600');
+                pulse.classList.add('bg-indigo-500');
+            }
+        }
+
+        function updateTimerDisplay() {
+            const h = Math.floor(timerSeconds / 3600);
+            const m = Math.floor((timerSeconds % 3600) / 60);
+            const s = timerSeconds % 60;
+            document.getElementById('timerDisplay').innerText = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+        }
+
+        function clearSearchContext() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('searchResults').innerHTML = '';
+            document.getElementById('epSearchInput').value = '';
+            document.getElementById('epSearchResults').innerHTML = '';
+        }
+
+        function setProvider(p) {
+            state.provider = p;
+            state.activeShow = null;
+            state.mode = (p === 'tvmaze') ? 'tv' : 'movie';
+            clearSearchContext();
+            updateProviderUI();
+            updateModeUI();
+            updateUI();
+        }
+
+        function setMode(m) {
+            if (state.provider === 'tvmaze' && m === 'movie') return;
+            state.mode = m;
+            state.activeShow = null;
+            clearSearchContext();
+            updateModeUI();
+            updateUI();
+        }
+
+        function updateProviderUI() {
+            ['tmdb', 'tvmaze', 'imdb'].forEach(id => {
+                const el = document.getElementById(`p-${id}`);
+                if(el) id === state.provider ? el.classList.add('provider-active') : el.classList.remove('provider-active');
+            });
+            const movieBtn = document.getElementById('m-movie');
+            state.provider === 'tvmaze' ? movieBtn.classList.add('input-disabled') : movieBtn.classList.remove('input-disabled');
+        }
+
+        function updateModeUI() {
+            ['movie', 'tv'].forEach(m => {
+                const el = document.getElementById(`m-${m}`);
+                if(el) m === state.mode ? el.classList.add('btn-mode-active') : el.classList.remove('btn-mode-active');
+            });
+        }
+
+        async function performSearch(customQuery = null) {
+            const q = customQuery || document.getElementById('searchInput').value.trim();
+            if (!q) return;
+            
+            if (!customQuery) {
+                document.getElementById('searchInput').value = q;
+            }
+
+            const resDiv = document.getElementById('searchResults');
+            resDiv.innerHTML = '<div class="text-center py-10 text-[10px] animate-pulse text-indigo-400 font-black uppercase tracking-widest">Searching...</div>';
+            try {
+                let results = [];
+                if (state.provider === 'tvmaze') {
+                    const r = await fetch(`https://api.tvmaze.com/search/shows?q=${encodeURIComponent(q)}`);
+                    const d = await r.json();
+                    results = d.map(i => ({ id: i.show.id, title: i.show.name, year: i.show.premiered ? i.show.premiered.split('-')[0] : 'N/A' }));
+                } else if (state.provider === 'imdb') {
+                    let url = q.startsWith('tt') ? `${IMDB_BASE_URL}/titles/${q}` : `${IMDB_BASE_URL}/titles?query=${encodeURIComponent(q)}&types=${state.mode === 'movie' ? 'MOVIE' : 'TV_SERIES'}`;
+                    const r = await fetch(url, { headers: { 'accept': 'application/json' } });
+                    const d = await r.json();
+                    let rawList = d.results ? d.results : (d.id ? [d] : []);
+                    results = rawList.map(i => ({
+                        id: i.id,
+                        title: i.primaryTitle || i.title || (i.titleText && i.titleText.text) || 'Unknown',
+                        year: i.startYear || i.year || (i.releaseYear && i.releaseYear.year) || 'N/A'
+                    }));
+                } else {
+                    const type = state.mode === 'movie' ? 'movie' : 'tv';
+                    const r = await fetch(`https://api.themoviedb.org/3/search/${type}?query=${encodeURIComponent(q)}&api_key=${TMDB_API_KEY}`);
+                    const d = await r.json();
+                    results = (d.results || []).map(i => ({ id: i.id, title: i.title || i.name, year: (i.release_date || i.first_air_date || "").split('-')[0] || 'N/A' }));
+                }
+                resDiv.innerHTML = results.slice(0, 15).map(res => `
+                    <button onclick="handleResultClick('${res.id}', '${res.title.replace(/'/g, "\\'")}', '${res.year}')" class="w-full text-left p-4 rounded-2xl bg-white/5 border border-slate-800 hover:border-indigo-500/50 hover:bg-indigo-500/5 transition-all group">
+                        <div class="flex justify-between items-center">
+                            <div class="font-black text-slate-200 text-xs truncate max-w-[80%] group-hover:text-white">${res.title}</div>
+                            <div class="text-[9px] bg-slate-900 px-2 py-1 rounded-lg text-slate-500 font-black border border-slate-800">${res.year}</div>
+                        </div>
+                    </button>
+                `).join('') || '<div class="text-center py-10 text-[10px] text-slate-700 font-black uppercase tracking-widest">No results</div>';
+            } catch (e) { resDiv.innerHTML = '<div class="text-center py-10 text-[10px] text-red-500 font-black uppercase">Search Error</div>'; }
+        }
+
+        async function handleResultClick(id, title, year) {
+            if (state.focusedFileId) {
+                const target = state.files.find(f => f.id === state.focusedFileId);
+                if (target) {
+                    target.newName = state.mode === 'movie' ? `${title} (${year})` : `${title}`;
+                    target.isMatched = true;
+                    target.hasConflict = false;
+                    state.focusedFileId = null;
+                    renderFiles();
+                }
+            } else {
+                state.activeShow = { id, title, year };
+                if (state.mode === 'movie') {
+                    const target = state.files.find(f => !f.newName) || state.files[0];
+                    if (target) { 
+                        target.newName = `${title} (${year})`; 
+                        target.isMatched = true;
+                        target.hasConflict = false;
+                        renderFiles(); 
+                    }
+                } else if (state.mode === 'tv') {
+                    autoMatchEpisodes();
+                }
+            }
+            updateUI();
+            showToast("Linked: " + title);
+        }
+
+        function cleanMediaTitle(filename) {
+            let name = filename.replace(/\.[^/.]+$/, "");
+            name = name.replace(/[._\[\]()-]/g, " ");
+            const noise = /\b(1080p|720p|2160p|4k|bluray|h264|x264|h265|x265|web-dl|webdl|hevc|aac|dts|remux|repack|dual-audio|hindi|eng)\b/gi;
+            name = name.replace(noise, "");
+            return name.trim();
+        }
+
+        function parseSeasonEpisode(filename) {
+            const normalized = filename.replace(/_/g, ' ').replace(/\./g, ' ');
+            const patterns = [
+                /[sS](\d{1,2})\s?[eE](\d{1,2})/,
+                /(\d{1,2})x(\d{1,2})/,
+                /season\s?(\d{1,2}).*?episode\s?(\d{1,2})/i,
+                /s\s?(\d{1,2}).*?e\s?(\d{1,2})/i
+            ];
+            for (const pattern of patterns) {
+                const match = normalized.match(pattern);
+                if (match) {
+                    return { season: parseInt(match[1]), episode: parseInt(match[2]) };
+                }
+            }
+            return null;
+        }
+
+        async function autoMatchContent() {
+            if (state.files.length === 0) return;
+            showToast("Smart Matching...");
+            for (let item of state.files) {
+                if (item.newName) continue;
+                if (state.mode === 'tv' && state.activeShow) {
+                    const match = parseSeasonEpisode(item.file.name);
+                    if (match) {
+                        const s = match.season;
+                        const e = match.episode;
+                        try {
+                            let epTitle = '';
+                            if (state.provider === 'tmdb') {
+                                const r = await fetch(`https://api.themoviedb.org/3/tv/${state.activeShow.id}/season/${s}/episode/${e}?api_key=${TMDB_API_KEY}`);
+                                if (r.ok) { const d = await r.json(); epTitle = d.name; }
+                            } else if (state.provider === 'tvmaze') {
+                                const r = await fetch(`https://api.tvmaze.com/shows/${state.activeShow.id}/episodebynumber?season=${s}&number=${e}`);
+                                if (r.ok) { const d = await r.json(); epTitle = d.name; }
+                            }
+                            if (epTitle) {
+                                const tag = `S${String(s).padStart(2,'0')}E${String(e).padStart(2,'0')}`;
+                                item.newName = `${state.activeShow.title} - ${tag} - ${epTitle}`;
+                                item.isMatched = true;
+                                item.hasConflict = false;
+                                renderFiles();
+                            }
+                        } catch (err) { console.error(err); }
+                    }
+                } else if (state.mode === 'movie' && state.provider !== 'imdb') {
+                    const cleanName = cleanMediaTitle(item.file.name);
+                    const yearMatch = cleanName.match(/\b(19|20)\d{2}\b/);
+                    let query = cleanName;
+                    let yearToFilter = null;
+                    if (yearMatch) {
+                        yearToFilter = yearMatch[0];
+                        query = cleanName.split(yearToFilter)[0].trim();
+                    }
+                    try {
+                        const r = await fetch(`https://api.themoviedb.org/3/search/movie?query=${encodeURIComponent(query)}&api_key=${TMDB_API_KEY}`);
+                        const d = await r.json();
+                        if (d.results && d.results.length > 0) {
+                            const exactYear = yearToFilter ? d.results.find(m => (m.release_date || "").startsWith(yearToFilter)) : null;
+                            const exactTitle = d.results.find(m => (m.title||m.name).toLowerCase() === query.toLowerCase());
+                            const bestMatch = exactYear || exactTitle || d.results[0];
+                            if (d.results.length === 1 || exactYear || (exactTitle && !yearToFilter)) {
+                                item.newName = `${bestMatch.title || bestMatch.name} (${(bestMatch.release_date || "").split('-')[0] || 'N/A'})`;
+                                item.isMatched = true;
+                                item.hasConflict = false;
+                            } else {
+                                item.hasConflict = true;
+                                item.isMatched = false;
+                            }
+                            renderFiles();
+                        }
+                    } catch (err) { console.error(err); }
+                }
+            }
+        }
+
+        function resolveFile(id) {
+            const item = state.files.find(f => f.id === id);
+            if (!item) return;
+            state.focusedFileId = id;
+            const cleanName = cleanMediaTitle(item.file.name);
+            const yearMatch = cleanName.match(/\b(19|20)\d{2}\b/);
+            const query = yearMatch ? cleanName.split(yearMatch[0])[0].trim() : cleanName;
+            document.getElementById('searchInput').value = query;
+            performSearch(query);
+            document.getElementById('searchInput').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        async function autoMatchEpisodes() {
+            autoMatchContent();
+        }
+
+        async function searchManualEpisode() {
+            if (!state.activeShow || state.mode !== 'tv') return;
+            const epQuery = document.getElementById('epSearchInput').value.trim().toLowerCase();
+            if (!epQuery) return;
+            const resList = document.getElementById('epSearchResults');
+            resList.innerHTML = '<div class="text-[10px] animate-pulse text-indigo-400 font-black text-center py-8">Mapping...</div>';
+            try {
+                let pool = [];
+                if(state.provider === 'tvmaze') {
+                    const r = await fetch(`https://api.tvmaze.com/shows/${state.activeShow.id}/episodes?specials=1`);
+                    const d = await r.json();
+                    pool = d.map(e => ({ s: e.season, e: e.number, title: e.name }));
+                } else if (state.provider === 'tmdb') {
+                    const rShow = await fetch(`https://api.themoviedb.org/3/tv/${state.activeShow.id}?api_key=${TMDB_API_KEY}`);
+                    const dShow = await rShow.json();
+                    for (const s of (dShow.seasons || [])) {
+                        const rEp = await fetch(`https://api.themoviedb.org/3/tv/${state.activeShow.id}/season/${s.season_number}?api_key=${TMDB_API_KEY}`);
+                        if (rEp.ok) {
+                            const dEp = await rEp.json();
+                            (dEp.episodes || []).forEach(m => pool.push({ s: m.season_number, e: m.episode_number, title: m.name }));
+                        }
+                    }
+                }
+                const matches = pool.filter(ep => {
+                    const tag = `S${String(ep.s).padStart(2,'0')}E${String(ep.e).padStart(2,'0')}`;
+                    const isSpecial = ep.s === 0 || ep.s === 100;
+                    return (ep.title && ep.title.toLowerCase().includes(epQuery)) || 
+                           tag.toLowerCase().includes(epQuery) ||
+                           (isSpecial && epQuery.includes("special"));
+                });
+                resList.innerHTML = matches.slice(0, 100).map(ep => {
+                    const tag = `S${String(ep.s).padStart(2,'0')}E${String(ep.e).padStart(2,'0')}`;
+                    const isSpecial = ep.s === 0 || ep.s === 100;
+                    return `
+                        <button onclick="applyManualMatch(${ep.s}, ${ep.e}, '${ep.title.replace(/'/g, "\\'")}')" class="w-full text-left p-3 rounded-xl bg-indigo-500/5 border border-indigo-500/10 hover:border-indigo-500 transition-all mb-2">
+                            <div class="flex items-center gap-3">
+                                <div class="flex flex-col min-w-[50px] items-center">
+                                    <span class="s-badge ${isSpecial ? 'bg-purple-600' : ''}">${isSpecial ? 'SPCL' : tag}</span>
+                                    ${isSpecial ? `<span class="text-[7px] font-mono text-slate-500 mt-0.5">${tag}</span>` : ''}
+                                </div>
+                                <div class="text-[11px] font-black text-slate-100 truncate">${ep.title || 'Untitled'}</div>
+                            </div>
+                        </button>
+                    `;
+                }).join('') || '<div class="text-slate-500 text-center p-6 text-[10px]">No matches</div>';
+            } catch (e) { resList.innerHTML = '<div class="text-red-500 text-center py-6 text-[10px]">Error</div>'; }
+        }
+
+        function applyManualMatch(s, e, epTitle) {
+            const target = state.files.find(f => f.id === state.focusedFileId) || state.files.find(f => !f.newName) || state.files[0];
+            if(!target) return;
+            
+            const tag = `S${String(s).padStart(2,'0')}E${String(e).padStart(2,'0')}`;
+            
+            target.newName = `${state.activeShow.title} - ${tag} - ${epTitle}`;
+            target.isMatched = true;
+            target.hasConflict = false;
+            state.focusedFileId = null;
+            renderFiles();
+        }
+
+        async function batchSaveFiles() {
+            const toProcess = state.files.filter(f => f.newName);
+            if (toProcess.length === 0) return showToast("Assign names first");
+            
+            const indicator = document.getElementById('processingIndicator');
+            indicator.classList.remove('hidden');
+            let successIds = [];
+
+            const updateProgress = (curr) => {
+                const p = Math.round((curr / toProcess.length) * 100);
+                document.getElementById('procBar').style.width = p + '%';
+                document.getElementById('procPercent').innerText = p + '%';
+            };
+
+            try {
+                if (window.showDirectoryPicker) {
+                    const dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+                    for (const item of toProcess) {
+                        const ext = item.file.name.split('.').pop();
+                        const handle = await dirHandle.getFileHandle(`${item.newName}.${ext}`, { create: true });
+                        const writable = await handle.createWritable();
+                        await writable.write(item.file);
+                        await writable.close();
+                        successIds.push(item.id);
+                        updateProgress(successIds.length);
+                    }
+                } else {
+                    for (const item of toProcess) {
+                        const ext = item.file.name.split('.').pop();
+                        const url = URL.createObjectURL(item.file);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `${item.newName}.${ext}`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                        successIds.push(item.id);
+                        updateProgress(successIds.length);
+                        await new Promise(r => setTimeout(r, 150));
+                    }
+                }
+                
+                state.files = state.files.filter(f => !successIds.includes(f.id));
+                showToast(`Saved ${successIds.length} files!`);
+            } catch (err) { 
+                if (err.name !== 'AbortError') showToast("Save interrupted"); 
+            } finally {
+                indicator.classList.add('hidden');
+                document.getElementById('procBar').style.width = '0%';
+                document.getElementById('procPercent').innerText = '0%';
+                updateUI();
+            }
+        }
+
+        function handleFileSelect(e) {
+            const newFiles = Array.from(e.target.files).map(f => ({ 
+                id: Math.random().toString(36).substr(2, 9), 
+                file: f, 
+                newName: '', 
+                isMatched: false,
+                hasConflict: false
+            }));
+            state.files = [...state.files, ...newFiles];
+            updateUI();
+            autoMatchContent();
+        }
+
+        function updateUI() {
+            renderFiles();
+            const epPanel = document.getElementById('manualEpSearchPanel');
+            const isTv = state.mode === 'tv';
+            epPanel.style.display = isTv ? 'block' : 'none';
+            const isTvLinked = state.activeShow && isTv;
+            document.getElementById('epSearchInput').disabled = !isTvLinked;
+            document.getElementById('epSearchInput').classList.toggle('input-disabled', !isTvLinked);
+            document.getElementById('epSearchBtn').classList.toggle('input-disabled', !isTvLinked);
+            document.getElementById('activeShowBadge').classList.toggle('hidden', !state.activeShow);
+            document.getElementById('epPanelDesc').innerHTML = state.activeShow ? `Linked: <span class="text-indigo-400 font-black">${state.activeShow.title}</span>` : "Awaiting Selection";
+            document.getElementById('fileCountDisplay').innerText = `${state.files.length} items in queue`;
+        }
+
+        function renderFiles() {
+            const body = document.getElementById('fileListBody');
+            const container = document.getElementById('fileTableContainer');
+            const empty = document.getElementById('emptyState');
+            const footer = document.getElementById('footerControls');
+            if (state.files.length === 0) {
+                container.classList.add('hidden'); footer.classList.add('hidden'); empty.classList.remove('hidden');
+                return;
+            }
+            empty.classList.add('hidden'); container.classList.remove('hidden'); footer.classList.remove('hidden');
+            body.innerHTML = state.files.map(item => `
+                <tr class="file-row bg-white/5 border-b border-white/5 ${item.isMatched ? 'match-success' : (item.hasConflict ? 'match-pending' : '')} ${state.focusedFileId === item.id ? 'ring-1 ring-indigo-500' : ''}">
+                    <td class="py-5 pl-6 rounded-l-3xl">
+                        <div class="text-[9px] text-slate-600 font-black truncate max-w-[150px] uppercase">${item.file.name}</div>
+                        ${item.hasConflict ? '<div class="text-[8px] text-amber-500 font-bold uppercase mt-1">Pick Specific Match</div>' : ''}
+                    </td>
+                    <td class="py-5">
+                        <div class="flex items-center gap-3">
+                            <input type="text" autocomplete="off" value="${item.newName}" onchange="updateManualName('${item.id}', this.value)" placeholder="Enter name..." class="bg-transparent text-sm font-black text-indigo-400 w-full outline-none">
+                            ${item.hasConflict ? `<button onclick="resolveFile('${item.id}')" class="bg-amber-500/10 text-amber-500 text-[8px] font-black px-3 py-1.5 rounded-lg border border-amber-500/20 hover:bg-amber-500 hover:text-black transition-all">PICK</button>` : ''}
+                        </div>
+                    </td>
+                    <td class="py-5 text-right pr-6 rounded-r-3xl">
+                        <button onclick="removeFile('${item.id}')" class="text-slate-700 hover:text-red-500"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function updateManualName(id, val) {
+            const f = state.files.find(x => x.id === id);
+            if (f) { f.newName = val; f.isMatched = !!val; f.hasConflict = false; renderFiles(); }
+        }
+
+        function removeFile(id) {
+            state.files = state.files.filter(f => f.id !== id);
+            if (state.focusedFileId === id) state.focusedFileId = null;
+            updateUI();
+        }
+
+        function clearFiles() {
+            state.files = []; state.activeShow = null; state.focusedFileId = null; updateUI();
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            document.getElementById('toastText').innerText = msg;
+            t.classList.remove('translate-y-20', 'opacity-0');
+            t.classList.add('translate-y-0', 'opacity-100');
+            setTimeout(() => { t.classList.add('translate-y-20', 'opacity-0'); }, 3000);
+        }
+
+        function copyRenames() {
+            const list = state.files.filter(f => f.newName).map(f => `${f.newName}.${f.file.name.split('.').pop()}`).join('\n');
+            if(!list) return showToast("No names found");
+            const el = document.createElement('textarea'); el.value = list; document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el);
+            showToast("Copied to clipboard!");
+        }
+    </script>
+</body>
+</html>
